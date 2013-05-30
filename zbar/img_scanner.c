@@ -53,12 +53,12 @@
 
 /* time interval for which two images are considered "nearby"
  */
-#define CACHE_PROXIMITY   1000 /* ms */
+#define CACHE_PROXIMITY   0 /* ms */
 
 /* time that a result must *not* be detected before
  * it will be reported again
  */
-#define CACHE_HYSTERESIS  2000 /* ms */
+#define CACHE_HYSTERESIS  0 /* ms */
 
 /* time after which cache entries are invalidated
  */
