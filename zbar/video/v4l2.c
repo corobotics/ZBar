@@ -241,6 +241,21 @@ static int v4l2_mmap_buffers (zbar_video_t *vdo)
     return(0);
 }
 
+static int v4l2_request_buffers (zbar_video_t *vdo)
+{
+    struct v4l2_requestbuffers rb;
+    memset(&rb, 0, sizeof(rb));
+    rb.count = vdo->num_images;
+    rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    rb.memory = V4L2_MEMORY_USERPTR;
+    if(ioctl(vdo->fd, VIDIOC_REQBUFS, &rb) < 0)
+        return(err_capture(vdo, SEV_ERROR, ZBAR_ERR_SYSTEM, __func__,
+                           "requesting video frame buffers (VIDIOC_REQBUFS)"));
+    if(rb.count) 
+        vdo->num_images = rb.count;
+    return(0);
+}
+
 static int v4l2_set_format (zbar_video_t *vdo,
                             uint32_t fmt)
 {
@@ -272,6 +287,7 @@ static int v4l2_set_format (zbar_video_t *vdo,
                 " format requested\n");
     }
 
+    printf("In v4l2_set_format()\n");
     struct v4l2_format newfmt;
     struct v4l2_pix_format *newpix = &newfmt.fmt.pix;
     memset(&newfmt, 0, sizeof(newfmt));
@@ -290,6 +306,21 @@ static int v4l2_set_format (zbar_video_t *vdo,
         return(err_capture(vdo, SEV_ERROR, ZBAR_ERR_INVALID, __func__,
                            "video driver can't provide compatible format"));
 
+    // code to change framerate from old ROS package uvc_camera, ktossell@github
+    struct v4l2_streamparm streamparm;
+    streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    streamparm.parm.capture.timeperframe.numerator = 1;
+    streamparm.parm.capture.timeperframe.denominator = 10;
+    int ret = ioctl(vdo->fd, VIDIOC_S_PARM, &streamparm);
+    if (ret < 0)
+      if (errno == ENOTTY) {
+        zprintf(1,"VIDIOC_S_PARM not spported on this v4l2 device, framerate not set");
+      } else {
+        printf("Could not set framerate\n");
+      }
+    else
+      printf("Frame rate set to 10 fps\n");
+    
     vdo->format = fmt;
     vdo->width = newpix->width;
     vdo->height = newpix->height;
@@ -308,6 +339,8 @@ static int v4l2_init (zbar_video_t *vdo,
         return(-1);
     if(vdo->iomode == VIDEO_MMAP)
         return(v4l2_mmap_buffers(vdo));
+    if(vdo->iomode == VIDEO_USERPTR)
+        return(v4l2_request_buffers(vdo));
     return(0);
 }
 
@@ -337,8 +370,13 @@ static int v4l2_probe_iomode (zbar_video_t *vdo)
     else {
         if(!vdo->iomode)
             vdo->iomode = VIDEO_USERPTR;
-        if(rb.count)
-            vdo->num_images = rb.count;
+        /* releasing buffers 
+         * lest the driver may later refuse to change format
+         */
+        rb.count = 0;
+        if (ioctl(vdo->fd, VIDIOC_REQBUFS, &rb) < 0)
+            zprintf(0, "WARNING: releasing video buffers failed: error %d\n",
+                errno);
     }
     return(0);
 }
